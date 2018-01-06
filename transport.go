@@ -39,9 +39,6 @@ type Transport struct {
 	// arrive to the chosen multicast group will be system-dependent.
 	MulticastInterfaces []*net.Interface
 
-	// Protocol string to use instead of "HTTP/1.1".
-	Proto string
-
 	bufPool sync.Pool
 }
 
