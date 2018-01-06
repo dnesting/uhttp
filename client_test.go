@@ -2,6 +2,7 @@ package uhttp_test
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -32,9 +33,9 @@ func ExampleClient_sSDP() {
 	req.Header.Add("ST", "upnp:rootdevice")
 	req.Header.Add("CPFN.UPNP.ORG", "Test")
 
-	err := client.Do(req, 3*time.Second, func(resp *uhttp.Response) error {
-		fmt.Printf("From %s:\n", resp.Addr)
-		resp.Response.Write(os.Stdout)
+	err := client.Do(req, 3*time.Second, func(sender net.Addr, resp *http.Response) error {
+		fmt.Printf("From %s:\n", sender)
+		resp.Write(os.Stdout)
 		fmt.Println("---")
 		return nil
 	})

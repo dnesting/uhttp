@@ -6,35 +6,45 @@ package main
 // +build ignore
 
 import (
+	"flag"
 	"fmt"
+	"net"
 	"net/http"
-	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/dnesting/uhttp"
 )
 
+var (
+	address  = flag.String("address", "239.255.255.250:1900", "send requests to this address in host:port form (or [addr%iface]:port for ipv6)")
+	waitSecs = flag.Int("wait_secs", 1, "number of seconds to wait for a response")
+	target   = flag.String("target", "ssdp:all", "search target (e.g. upnp:rootdevice)")
+)
+
 func main() {
+	flag.Parse()
 	client := uhttp.Client{
 		Transport: &uhttp.Transport{
 			HeaderCanon: func(n string) string { return strings.ToUpper(n) },
 		},
 	}
 	req, _ := http.NewRequest("M-SEARCH", "", nil)
-	req.URL = &url.URL{
-		Host: "239.255.255.250:1900",
-		Path: "*",
-	}
+	req.URL.Host = *address
+	req.URL.Path = "*"
 	req.Header.Add("MAN", `"ssdp:discover"`)
-	req.Header.Add("MX", "1")
-	req.Header.Add("ST", "ssdp:all")
+	req.Header.Add("MX", strconv.Itoa(*waitSecs))
+	req.Header.Add("ST", *target)
 	req.Header.Add("CPFN.UPNP.ORG", "Test")
 
-	err := client.Do(req, 2*time.Second, func(resp *uhttp.Response) error {
-		fmt.Printf("From %s:\n", resp.Addr)
-		resp.Response.Write(os.Stdout)
+	// Add 100ms to waitSecs to account for any network or device delays.
+	wait := time.Duration(*waitSecs)*time.Second + 100*time.Millisecond
+
+	err := client.Do(req, wait, func(sender net.Addr, resp *http.Response) error {
+		fmt.Printf("--- From %s:\n", sender)
+		resp.Write(os.Stdout)
 		fmt.Println("---")
 		return nil
 	})

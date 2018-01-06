@@ -1,6 +1,7 @@
 package uhttp
 
 import (
+	"net"
 	"net/http"
 	"time"
 )
@@ -14,7 +15,7 @@ type Client struct {
 // Get makes a GET request for url, waits up to wait, and delivers any responses received to fn.
 // If an error occurs, or fn returns an error, execution will return immediately.  The sentinal
 // error Stop may be returned to cause Get to return immediately with no error.
-func (c *Client) Get(url string, wait time.Duration, fn func(resp *Response) error) error {
+func (c *Client) Get(url string, wait time.Duration, fn func(sender net.Addr, resp *http.Response) error) error {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return err
@@ -25,7 +26,7 @@ func (c *Client) Get(url string, wait time.Duration, fn func(resp *Response) err
 // Do issues r, waits up to wait, and delivers any responses received to fn.
 // If an error occurs, or fn returns an error, execution will return immediately.  The sentinal
 // error Stop may be returned to cause Get to return immediately with no error.
-func (c *Client) Do(r *http.Request, wait time.Duration, fn func(resp *Response) error) error {
+func (c *Client) Do(r *http.Request, wait time.Duration, fn func(sender net.Addr, resp *http.Response) error) error {
 	return c.Transport.RoundTripMulti(r, wait, fn)
 }
 
@@ -37,13 +38,13 @@ var DefaultClient = &Client{
 // Do issues r via DefaultClient, waits up to wait, and delivers any responses received to fn.
 // If an error occurs, or fn returns an error, execution will return immediately.  The sentinal
 // error Stop may be returned to cause Get to return immediately with no error.
-func Do(r *http.Request, wait time.Duration, fn func(resp *Response) error) error {
+func Do(r *http.Request, wait time.Duration, fn func(sender net.Addr, resp *http.Response) error) error {
 	return DefaultClient.Do(r, wait, fn)
 }
 
 // Get makes a GET request for url via DefaultClient, waits up to wait, and delivers any responses received to fn.
 // If an error occurs, or fn returns an error, execution will return immediately.  The sentinal
 // error Stop may be returned to cause Get to return immediately with no error.
-func Get(url string, wait time.Duration, fn func(resp *Response) error) error {
+func Get(url string, wait time.Duration, fn func(sender net.Addr, resp *http.Response) error) error {
 	return DefaultClient.Get(url, wait, fn)
 }

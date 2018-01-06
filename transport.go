@@ -57,7 +57,7 @@ type RoundTripMultier interface {
 	// return when wait is reached (if non-zero), req.Context() expires, or an error occurs.  The fn
 	// implementation may return the sentinal error Stop to halt processing without causing
 	// RoundTripMulti to return an error.
-	RoundTripMulti(req *http.Request, wait time.Duration, fn func(res *Response) error) error
+	RoundTripMulti(req *http.Request, wait time.Duration, fn func(sender net.Addr, res *http.Response) error) error
 }
 
 var DefaultTransport RoundTripMultier = &Transport{
@@ -91,8 +91,8 @@ var Stop = errors.New("stop processing")
 // when a response was received, when the req.Context() expires, or when
 // t.MaxWait is reached (if non-zero).
 func (t *Transport) RoundTrip(req *http.Request) (res *http.Response, err error) {
-	err = t.RoundTripMulti(req, 0, func(r *Response) error {
-		res = r.Response
+	err = t.RoundTripMulti(req, 0, func(_ net.Addr, r *http.Response) error {
+		res = r
 		return Stop
 	})
 	if res == nil && err == nil {
@@ -153,8 +153,8 @@ func (t *Transport) sendMulti(ctx context.Context, addr *net.UDPAddr, data []byt
 
 	if n, err = conn.WriteTo(data, addr); err != nil {
 		conn.Close()
+		err = fmt.Errorf("uhttp: write request to %s: %v", addr, err)
 		conn = nil
-		err = fmt.Errorf("uhttp: write request to %s: %v", conn.LocalAddr(), err)
 	}
 	return
 }
@@ -185,7 +185,7 @@ func (t *Transport) WriteRequest(w io.Writer, req *http.Request) error {
 // RoundTripMulti issues a UDP HTTP request and calls fn for each response received.  Returns when wait
 // is reached (no error), req.Context() expires, an error occurs, or when fn returns an error.  The
 // sentinal error Stop may be returned by fn to cause this method to return immediately without error.
-func (t *Transport) RoundTripMulti(req *http.Request, wait time.Duration, fn func(r *Response) error) (err error) {
+func (t *Transport) RoundTripMulti(req *http.Request, wait time.Duration, fn func(sender net.Addr, r *http.Response) error) (err error) {
 	if err = validateRequest(req); err != nil {
 		closeBody(req)
 		return err
@@ -276,7 +276,7 @@ forloop:
 				// Discard this packet and wait to see if more arrive.  If none do, this error will stand.
 				continue
 			}
-			if err = fn(&Response{r, p.addr}); err != nil {
+			if err = fn(p.addr, r); err != nil {
 				break forloop
 			}
 		}
