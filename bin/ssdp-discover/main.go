@@ -29,6 +29,7 @@ func main() {
 	client := uhttp.Client{
 		Transport: &uhttp.Transport{
 			HeaderCanon: func(n string) string { return strings.ToUpper(n) },
+			Repeat:      uhttp.RepeatAfter(50*time.Millisecond, 1),
 		},
 	}
 	req, _ := http.NewRequest("M-SEARCH", "", nil)
@@ -39,8 +40,8 @@ func main() {
 	req.Header.Add("ST", *target)
 	req.Header.Add("CPFN.UPNP.ORG", "Test")
 
-	// Add 100ms to waitSecs to account for any network or device delays.
-	wait := time.Duration(*waitSecs)*time.Second + 100*time.Millisecond
+	// Add 500ms to waitSecs to account for any network or device delays.
+	wait := time.Duration(*waitSecs)*time.Second + 500*time.Millisecond
 
 	err := client.Do(req, wait, func(sender net.Addr, resp *http.Response) error {
 		fmt.Printf("--- From %s:\n", sender)

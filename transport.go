@@ -34,10 +34,9 @@ type Transport struct {
 	// HTTP/1.1 (but let's face it, none of this is standard).
 	HeaderCanon func(name string) string
 
-	// MulticastInterfaces contains the set of network interfaces over which we will attempt to join
-	// any multicast groups that appear in HTTP requests.  If nil, whether or not HTTP requests will
-	// arrive to the chosen multicast group will be system-dependent.
-	MulticastInterfaces []*net.Interface
+	// Repeat enables requests to be repeated, according to the delays returned by the resulting
+	// RepeatFunc.
+	Repeat RepeatGenerator
 
 	bufPool sync.Pool
 }
@@ -130,7 +129,26 @@ func validateRequest(req *http.Request) error {
 	return nil
 }
 
-func sendDirect(ctx context.Context, address string, data []byte) (n int, conn net.PacketConn, err error) {
+// repeat repeats fn for every durFn call that returns a non-nil delay time.  Returns when
+// ctx expires, every returns nil, or fn returns an error.
+func repeat(ctx context.Context, durFn func(_ time.Duration) *time.Duration, fn func() error) {
+	prev := time.Duration(0)
+	for next := durFn(prev); next != nil; next = durFn(prev) {
+		prev = *next
+		select {
+		case <-time.After(*next):
+			if err := fn(); err != nil {
+				return
+			}
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (t *Transport) sendDirect(ctx context.Context, address string, data []byte) (n int, conn net.PacketConn, err error) {
+	// Listen on a new UDP socket with a system-assigned local port number, "connected" to the
+	// remote unicast UDP endpoint.
 	var d net.Dialer
 	c, err := d.DialContext(ctx, "udp", address)
 	if err != nil {
@@ -138,29 +156,54 @@ func sendDirect(ctx context.Context, address string, data []byte) (n int, conn n
 	}
 	conn = c.(net.PacketConn)
 
+	// Send the request.
 	if n, err = c.Write(data); err != nil {
-		return n, nil, fmt.Errorf("uhttp: write request to %s: %v", conn.LocalAddr(), err)
+		conn.Close()
+		err = fmt.Errorf("uhttp: write request to %q: %v", address, err)
+		conn = nil
+		return
+	}
+
+	if t.Repeat != nil {
+		// Send duplicate requests if requested.  This goroutine will continue running based on the behavior of
+		// t.Repeat and will automatically exit when ctx expires.
+		go repeat(ctx, t.Repeat(), func() error {
+			_, err := c.Write(data)
+			return err
+		})
 	}
 	return
 }
 
 func (t *Transport) sendMulti(ctx context.Context, addr *net.UDPAddr, data []byte) (n int, conn net.PacketConn, err error) {
+	// Listen on all addresses with a request-specific system-assigned UDP port number.
 	conn, err = net.ListenPacket("udp", "")
 	if err != nil {
 		err = fmt.Errorf("uhttp: listen: %v", err)
 		return
 	}
 
+	// Send the request.
 	if n, err = conn.WriteTo(data, addr); err != nil {
 		conn.Close()
-		err = fmt.Errorf("uhttp: write request to %s: %v", addr, err)
+		err = fmt.Errorf("uhttp: write request to %q: %v", addr, err)
 		conn = nil
+		return
+	}
+
+	if t.Repeat != nil {
+		// Send duplicate requests if requested.  This goroutine will continue running based on the behavior of
+		// t.Repeat and will automatically exit when ctx expires.
+		go repeat(ctx, t.Repeat(), func() error {
+			_, err := conn.WriteTo(data, addr)
+			return err
+		})
 	}
 	return
 }
 
 // WriteRequest writes req to w, in wire format.  If req is larger than t.MaxSize, returns
-// io.ErrShortWrite.  This applies header canonicalization per t.HeaderCanon, if it's provided.
+// an error.  This applies header canonicalization per t.HeaderCanon, if it's provided.
 func (t *Transport) WriteRequest(w io.Writer, req *http.Request) error {
 	w = &limitedWriter{Writer: w, N: t.getMaxSize()}
 
@@ -191,6 +234,9 @@ func (t *Transport) RoundTripMulti(req *http.Request, wait time.Duration, fn fun
 		return err
 	}
 
+	ctx, cancel := context.WithCancel(req.Context())
+	defer cancel()
+
 	// Grab a []byte buffer and write req into it.
 	b := t.newBuf()
 	defer func() { t.releaseBuf(b) }()
@@ -205,13 +251,13 @@ func (t *Transport) RoundTripMulti(req *http.Request, wait time.Duration, fn fun
 	}
 
 	// If the request is intended for a multicast group, we need to explicitly
-	// listen and accept packets from arbitrary responders.  Otherwise, we use
+	// listen and receive packets from arbitrary responders.  Otherwise, we use
 	// Dial so that we can get 'connection refused' errors and automatic
 	// filtering of responses that don't come from the server.
 	if raddr.IP.Equal(net.IPv4bcast) || raddr.IP.IsMulticast() {
-		n, conn, err = t.sendMulti(req.Context(), raddr, buf.Bytes())
+		n, conn, err = t.sendMulti(ctx, raddr, buf.Bytes())
 	} else {
-		n, conn, err = sendDirect(req.Context(), req.URL.Host, buf.Bytes())
+		n, conn, err = t.sendDirect(ctx, req.URL.Host, buf.Bytes())
 	}
 	if err != nil {
 		return fmt.Errorf("uhttp send request: %v", err)
@@ -253,8 +299,8 @@ func (t *Transport) RoundTripMulti(req *http.Request, wait time.Duration, fn fun
 forloop:
 	for {
 		select {
-		case <-req.Context().Done():
-			err = req.Context().Err()
+		case <-ctx.Done():
+			err = ctx.Err()
 			break forloop
 		case <-waitCh:
 			break forloop

@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestStripper(t *testing.T) {
+func TestCanon(t *testing.T) {
 	type testcase struct {
 		desc     string
 		orig     string
@@ -16,8 +16,7 @@ func TestStripper(t *testing.T) {
 	}
 
 	cases := []testcase{
-		{"empty strip should do nothing", "One: 1\r\nTwo: 2\r\n\r\n", []string{"One", "Two"}, "One: 1\r\nTwo: 2\r\n\r\n"},
-		{"wrong strip should do nothing", "One: 1\r\nTwo: 2\r\n\r\n", []string{"One", "Two", "Three"}, "One: 1\r\nTwo: 2\r\n\r\n"},
+		{"should do nothing", "One: 1\r\nTwo: 2\r\n\r\n", []string{"One", "Two"}, "One: 1\r\nTwo: 2\r\n\r\n"},
 		{"strip first", "One: 1\r\nTwo: 2\r\n\r\n", []string{"Two"}, "Two: 2\r\n\r\n"},
 		{"strip last", "One: 1\r\nTwo: 2\r\n\r\n", []string{"One"}, "One: 1\r\n\r\n"},
 		{"strip all", "One: 1\r\nTwo: 2\r\n\r\n", []string{}, "\r\n"},
