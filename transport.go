@@ -100,12 +100,6 @@ func (t *Transport) RoundTrip(req *http.Request) (res *http.Response, err error)
 	return
 }
 
-func closeBody(req *http.Request) {
-	if req.Body != nil {
-		req.Body.Close()
-	}
-}
-
 func validateRequest(req *http.Request) error {
 	if req.URL == nil {
 		return errors.New("uhttp: nil http.Request.URL")
@@ -130,20 +124,21 @@ func validateRequest(req *http.Request) error {
 }
 
 // repeat repeats fn for every durFn call that returns a non-nil delay time.  Returns when
-// ctx expires, every returns nil, or fn returns an error.
-func repeat(ctx context.Context, durFn func(_ time.Duration) *time.Duration, fn func() error) {
+// ctx expires, durFn returns nil, or fn returns an error.
+func repeat(ctx context.Context, durFn func(_ time.Duration) *time.Duration, fn func() error) error {
 	prev := time.Duration(0)
 	for next := durFn(prev); next != nil; next = durFn(prev) {
 		prev = *next
 		select {
 		case <-time.After(*next):
 			if err := fn(); err != nil {
-				return
+				return err
 			}
 		case <-ctx.Done():
-			return
+			return nil
 		}
 	}
+	return nil
 }
 
 func (t *Transport) sendDirect(ctx context.Context, address string, data []byte) (n int, conn net.PacketConn, err error) {
@@ -230,7 +225,9 @@ func (t *Transport) WriteRequest(w io.Writer, req *http.Request) error {
 // sentinal error Stop may be returned by fn to cause this method to return immediately without error.
 func (t *Transport) RoundTripMulti(req *http.Request, wait time.Duration, fn func(sender net.Addr, r *http.Response) error) (err error) {
 	if err = validateRequest(req); err != nil {
-		closeBody(req)
+		if req.Body != nil {
+			req.Body.Close()
+		}
 		return err
 	}
 
@@ -241,7 +238,9 @@ func (t *Transport) RoundTripMulti(req *http.Request, wait time.Duration, fn fun
 	b := t.newBuf()
 	defer func() { t.releaseBuf(b) }()
 	buf := bytes.NewBuffer(b[:0])
-	t.WriteRequest(buf, req)
+	if err = t.WriteRequest(buf, req); err != nil {
+		return err
+	}
 
 	var conn net.PacketConn
 	var n int
