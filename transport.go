@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/net/lex/httplex"
+	"golang.org/x/net/http/httpguts"
 )
 
 const defaultPacketSize = 8192
@@ -111,11 +111,11 @@ func validateRequest(req *http.Request) error {
 		return errors.New("uhttp: nil http.Request.Header")
 	}
 	for k, vals := range req.Header {
-		if !httplex.ValidHeaderFieldName(k) {
+		if !httpguts.ValidHeaderFieldName(k) {
 			return fmt.Errorf("uhttp: invalid header field name %q", k)
 		}
 		for _, v := range vals {
-			if !httplex.ValidHeaderFieldValue(v) {
+			if !httpguts.ValidHeaderFieldValue(v) {
 				return fmt.Errorf("uhttp: invalid header field value %q for key %v", v, k)
 			}
 		}

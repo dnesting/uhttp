@@ -1,9 +1,9 @@
+// +build ignore
+
 // This is just a test binary to validate that the package is working correctly
 // by trying to do something semi-useful.  It is excluded from the build so that
 // it does not get installed by users of this package.
 package main
-
-// +build ignore
 
 import (
 	"flag"
